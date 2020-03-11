@@ -1,0 +1,214 @@
+#!/usr/bin/perl
+use strict;
+use warnings;
+use v5.10;
+use DBI;
+use Data::Dumper;
+# connection database
+use experimental qw(switch);
+my $checkdb='Y';
+my $reply='N';
+my $no=0;
+my $record;
+my $sql;
+&connection;
+sub connection {
+	print "enter a database name\n";
+	my $db  = <STDIN>;
+	my $database = "DBI:mysql:database=$db";
+	print $database;
+	my $con = DBI->connect($database,"root","passwd");
+	if($con) {
+	 	print "connected\n";
+	 	&FoundTable($con,$db);
+	} else {
+	 print "Database Not Found\n";
+	 print "if you enter a new database name then press Y if no then n\n";
+	 $checkdb = <STDIN>;
+	 chomp($checkdb);
+	 if($checkdb eq 'Y') {
+	 	&connection($db);
+	 } elsif($checkdb eq 'N') {
+	 	exit;
+	 } 
+	}
+}
+sub FoundTable{
+	my $con = shift;
+	my $db = shift;
+	my $table_operation ='Y';
+	chomp($db);
+	$sql ="SELECT TABLE_NAME,TABLE_ROWS FROM information_schema.TABLES WHERE TABLE_SCHEMA = ?";
+	$record = $con->prepare($sql);
+	$record->execute($db);
+	my $no=$record->rows();
+	if($record->execute($db) && $table_operation eq 'Y'){
+		if($table_operation eq 'N') {
+		}
+		else{
+				print "if you want to single table operation or multiple if single then press m either s";
+					$table_operation = <STDIN>;
+					chomp($table_operation);
+					if($table_operation eq 'm' || $table_operation eq 'M') {
+						while (my @row= $record->fetchrow_array()) {
+								# print $row[0]."\n";
+							}
+					} elsif($table_operation eq 'S' || $table_operation eq 's') {
+						print "enter a table name\n";
+						my $tablename = <STDIN>;
+						chomp($tablename);
+						while (my @row= $record->fetchrow_array()) {
+							if(exists ($row[$tablename])){
+								&Menu($tablename,$row[1],$con);
+								exit;
+							}
+							exit;
+						}
+					}
+				$table_operation = 'N';
+				exit;					
+			}
+	} 
+}
+sub Menu{
+	my $tablename = shift;
+	my $tablerow = shift;
+	my $con = shift;
+	my $ch;
+	print("____________________menu________________\n");
+	print("1. Insert a Data\n");
+	print("2. Select All Data\n");
+	print("3. Edit Data and Update\n");
+	print("4. Delete Data\n");
+	print("5. exit\n");
+	print "enter a Your Choice To Perform\n";
+	$ch = <STDIN>;
+	given($ch) {
+		when (1) {
+			&InsertData($con,$tablename)
+		}
+		when (2) {
+			&SelectData($con,$tablename);
+		}
+		when (3) {
+			&EditData($con,$tablename);
+		}
+		when (4) {
+			&DeleteData($con,$tablename);
+		}
+	}
+	
+}
+sub SelectData{
+	my $con = shift;
+	my $tablename = shift;
+	print "Table Name is $tablename\n";
+	$sql ="SELECT * FROM $tablename";
+	$record = $con->prepare($sql);
+	$record->execute();
+	while (my $row = $record->fetchrow_arrayref()) {
+		my $csv = join(',', @$row);
+	    print "$csv\n";
+	}
+}
+
+sub InsertData{
+	my $con = shift;
+	my $tablename = shift;
+	my @fetchvalue=();
+	my $col_name='';
+	my $record_seen_or_not='N';
+	print "Table Name is $tablename\n";
+	my $sql ="SELECT * FROM $tablename";
+	$record = $con->prepare($sql);
+	$record->execute();
+	my @fields = (@{$record->{NAME_lc}});
+	shift @fields;
+	my $fields = join(',', @{fields});
+	foreach my $colname(@fields) {
+		print "enter a $colname\n";
+		chomp($col_name = <>);
+		push(@fetchvalue,$col_name);
+	}
+	my $text = join ',', map { qq/'$_'/ } @fetchvalue;
+	my $insertsql="insert into $tablename($fields)values($text)";
+	$record = $con->prepare($insertsql);
+	if($record->execute()){
+		print "Inserted Sucessfully\n";
+		print "if you record seen or not\n";
+		chomp($record_seen_or_not = <>);
+		if($record_seen_or_not eq 'Y') {
+			print "colname=>$fields\n";
+			print "values=>$text\n";
+		} else {
+			exit;
+		}
+	} else {
+		print "Fail";
+	}
+}
+sub DeleteData {
+	my $con = shift;
+	my $tablename = shift;
+	my $id;
+	&SelectData($con,$tablename);
+	print "enter a id";
+	$id = <STDIN>;
+	$sql ="SELECT * FROM $tablename";
+	$record = $con->prepare($sql);
+	$record->execute();
+	my @fields = (@{$record->{NAME_lc}});
+	$sql ="delete FROM $tablename WHERE $fields[0] = ?";
+	my $record = $con->prepare($sql);
+	if($record->execute($id)){
+		print "record deleted";
+		} else {
+		print "query not executed";
+		}
+}
+sub EditData {
+	my $con = shift;
+	my $tablename = shift;
+	my $id;
+	my $col_name;
+	my $string='';
+	my $record_seen='N';
+	my $value;
+	my @string_array=();
+	&SelectData($con,$tablename);
+	print "enter a id\n";
+	$id = <STDIN>;
+	$sql ="SELECT * FROM $tablename";
+	$record = $con->prepare($sql);
+	$record->execute();
+	my @fields = (@{$record->{NAME_lc}});
+	my $col_id=$fields[0];
+	$sql ="select * FROM $tablename WHERE $fields[0] = ?";
+	my $record = $con->prepare($sql);
+	$record->execute($id);
+	while (my $row = $record->fetchrow_arrayref()) {
+		my $csv = join(',', @$row);
+	    print "$csv\n";
+	}
+	shift @fields;
+	print "You Want To Update Then Press Y either N\n";
+	$reply = <STDIN>;
+	chomp($reply);
+	if($reply eq 'Y') {
+		foreach my $colname (@fields) {
+			print "enter a $colname\n";
+			chomp($col_name = <>);
+			my $text = join ',', map { qq/'$_'/ } $col_name;
+			$string .= $colname."=".$text.",";
+		}
+		chop($string);
+		print my $updatesql="update $tablename set $string where $col_id = ?";
+		my $record = $con->prepare($updatesql);
+		$record->execute($id);
+		
+	} elsif($reply eq 'N') {
+		exit;
+	}
+
+}
+
